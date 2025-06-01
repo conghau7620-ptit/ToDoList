@@ -2,7 +2,6 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '3.3.11'
 	id 'io.spring.dependency-management' version '1.1.7'
-	id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
 group = 'aws.demo'
@@ -19,15 +18,30 @@ repositories {
 }
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+
 	implementation 'software.amazon.awssdk:dynamodb:2.26.24'
 	implementation 'com.amazonaws.serverless:aws-serverless-java-container-springboot3:2.1.2'
     implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
     implementation 'com.amazonaws:aws-lambda-java-events:3.12.0'
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.14.0'
-    runtimeOnly 'com.amazonaws:aws-lambda-java-log4j2:1.5.1'
+    implementation 'jakarta.servlet:jakarta.servlet-api:6.0.0'
+    implementation 'jakarta.ws.rs:jakarta.ws.rs-api:3.1.0'
+    
+	// Spring Boot starter for minimal setup
+	implementation('org.springframework.boot:spring-boot-starter') {
+		exclude group: 'com.fasterxml.jackson.core'
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	// AWS SDK for S3 (example)
+	implementation('software.amazon.awssdk:s3:2.26.23') {
+		exclude group: 'com.fasterxml.jackson.core'
+		exclude group: 'com.fasterxml.jackson.dataformat'
+		exclude group: 'com.fasterxml.jackson.module'
+	}
+	
+	runtimeOnly 'org.springframework.boot:spring-boot-starter-json'
+	
+    compileOnly 'jakarta.servlet:jakarta.servlet-api:6.0.0'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -36,9 +50,25 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
-shadowJar {
-    archiveBaseName.set('todo-lambda') // Base name of the JAR
-    archiveClassifier.set('') // No classifier (e.g., no "-all" suffix)
-    archiveVersion.set('1.0') // Version of the JAR
+tasks.named('bootJar') {
+    // Ensure a fat JAR with all dependencies
+    archiveClassifier = ''
 }
 
+tasks.register('buildLambdaJar', Jar) {
+	dependsOn classes
+	archiveFileName.set('todolist-service.jar')
+	destinationDirectory.set(file("$buildDir/libs"))
+	with {
+		from {
+			configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+		}
+		from sourceSets.main.output
+		// Exclude duplicate and unnecessary META-INF files
+		exclude 'META-INF/LICENSE.txt', 'META-INF/NOTICE.txt', 'META-INF/INDEX.LIST', 'META-INF/.RSA', 'META-INF/.SF'
+	}
+	manifest {
+		attributes 'Main-Class': 'aws.demo.todolist.LambdaHandler'
+		duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	}
+}
